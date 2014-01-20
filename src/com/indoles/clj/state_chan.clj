@@ -2,37 +2,40 @@
   (:require [clojure.core.async :as async]))
 
 (defn init
-  ([req-ch repl-ch init-state]
-     (async/go-loop [req req-ch
-                     repl repl-ch
+  ([ch init-state]
+     (async/go-loop [req ch
                      state init-state
                      item (async/<! req)]
                     (if (= :stop item)
                       (do
-                        (async/close! repl)
                         (async/close! req))
-                      (let [ret (-> state item)]
-                        (when ret (async/>! repl ret))
-                        ; update state with a new status from
-                        ; function invocation, only if non-nil
-                        (recur req repl (if ret ret state) (async/<! req)))))
-     {:req-ch req-ch :repl-ch repl-ch})
-  ([init-state] (init (async/chan) (async/chan) init-state))
+                      (let [next-state (item state)]
+                        (recur req next-state (async/<! req)))))
+     ch)
+  ([init-state] (init (async/chan) init-state))
   ([] (init {})))
 
-(defn send-msg [{:keys [req-ch repl-ch]} msg]
-  (async/go (async/>! req-ch msg)))
+(defn send-msg [ch msg]
+  (async/go (async/>! ch msg)))
 
-(defn receive-msg [{:keys [reg-ch repl-ch]}]
-  (async/<!! repl-ch))
+(defn receive-msg [ch]
+  (async/<!! ch))
 
-(defn stop [machine]
-  (send-msg machine :stop)
+(defn stop [ch]
+  (send-msg ch :stop)
   nil)
 
-(defn respond-to [machine f]
-  (send-msg machine f)
-  (receive-msg machine))
+(defn respond-to
+  ([ch rep-ch f]
+     (send-msg ch (fn [item] (let [ret (f item)]
+                              (async/go (async/>! rep-ch ret))
+                              ret)))
+     (receive-msg rep-ch))
+  ([ch f]
+     (let [rep-ch (async/chan)
+           ret (respond-to ch rep-ch f)]
+       (async/close! rep-ch)
+       ret)))
 
-(defn state [machine]
-  (respond-to machine identity))
+(defn state [ch]
+  (respond-to ch identity))
