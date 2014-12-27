@@ -9,7 +9,7 @@ the next state.
 ## Usage
 
 (def m (init {}))
-(respond-to m #(assoc %1 :key "value))
+(respond-to m #(assoc %1 :key "value"))
 (state m)
 (stop m)
 
